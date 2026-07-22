@@ -1,0 +1,131 @@
+/**
+ * Sprint Intelligence — Design Tokens & Global Styles
+ *
+ * Aesthetic: Industrial command-centre. Dark, precise, data-dense.
+ * Typography: JetBrains Mono (data) + Outfit (headings/body).
+ */
+
+:root {
+  /* ── Surface ──────────────────────── */
+  --bg:            #0a0e17;
+  --card:          #111827;
+  --card-hover:    #1a2236;
+  --border:        #1e293b;
+
+  /* ── Text ─────────────────────────── */
+  --text:          #e2e8f0;
+  --text-muted:    #64748b;
+  --text-dim:      #475569;
+
+  /* ── Accents ──────────────────────── */
+  --accent:        #22d3ee;
+  --accent-dim:    #0891b2;
+  --green:         #10b981;
+  --green-dim:     #065f46;
+  --red:           #ef4444;
+  --red-dim:       #991b1b;
+  --amber:         #f59e0b;
+  --amber-dim:     #92400e;
+  --purple:        #a78bfa;
+  --pink:          #f472b6;
+  --blue:          #3b82f6;
+  --indigo:        #818cf8;
+
+  /* ── Typography ───────────────────── */
+  --font-display:  "Outfit", system-ui, sans-serif;
+  --font-mono:     "JetBrains Mono", "Fira Code", monospace;
+
+  /* ── Spacing ──────────────────────── */
+  --radius-sm:     8px;
+  --radius-md:     12px;
+  --radius-lg:     16px;
+}
+
+*, *::before, *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-display);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* ── Scrollbar ──────────────────────── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-dim);
+}
+
+/* ── Animations ─────────────────────── */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.fade-in {
+  animation: fadeIn 0.4s ease-out both;
+}
+
+/* Staggered fade — apply via style={{ animationDelay }} */
+.stagger { animation: fadeIn 0.35s ease-out both; }
+
+/* Loading skeleton block */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--border) 25%,
+    var(--card-hover) 50%,
+    var(--border) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: var(--radius-sm);
+}
+
+/* ── Utility ────────────────────────── */
+select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%2364748b' viewBox='0 0 16 16'%3E%3Cpath d='M4 6l4 4 4-4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 32px !important;
+}
+
+select option {
+  background: var(--card);
+  color: var(--text);
+}
