@@ -1,16 +1,9 @@
 import MetricCard from "../components/MetricCard.jsx";
 import StatusPieChart from "../components/charts/StatusPieChart.jsx";
-import TeamBarChart from "../components/charts/TeamBarChart.jsx";
 import Card from "../components/Card.jsx";
 import ProgressBar from "../components/ProgressBar.jsx";
 import ProgressRing from "../components/ProgressRing.jsx";
-import EfficiencyBadge from "../components/EfficiencyBadge.jsx";
-
-function getEfficiencyColor(score) {
-  if (score >= 80) return "var(--green)";
-  if (score >= 60) return "var(--amber)";
-  return "var(--red)";
-}
+import { getCompletionColor } from "../utils/statusMapper.js";
 
 export default function OverviewPage({ analytics }) {
   if (!analytics) return null;
@@ -24,7 +17,7 @@ export default function OverviewPage({ analytics }) {
           label="Sprint Progress"
           value={summary.completionRate}
           unit="%"
-          color={summary.completionRate >= 50 ? "var(--green)" : "var(--amber)"}
+          color={getCompletionColor(summary.completionRate)}
         >
           <div style={{ marginTop: "8px" }}>
             <ProgressBar percentage={summary.completionRate} />
@@ -36,34 +29,15 @@ export default function OverviewPage({ analytics }) {
           value={`${summary.completedTasks}/${summary.totalTasks}`}
         />
 
-        <MetricCard
-          label="Time Efficiency"
-          value={summary.overallEfficiency}
-          unit="%"
-          color={
-            summary.overallEfficiency >= 80
-              ? "var(--green)"
-              : summary.overallEfficiency >= 60
-              ? "var(--amber)"
-              : "var(--red)"
-          }
-        />
+        <MetricCard label="Projects" value={summary.totalProjects} />
 
-        <MetricCard
-          label="Hrs Est / Actual"
-          value={summary.totalEstimateHrs}
-          unit={`/ ${summary.totalSpentHrs}h`}
-          color={summary.totalSpentHrs <= summary.totalEstimateHrs ? "var(--green)" : "var(--red)"}
-        />
+        <MetricCard label="Team" value={summary.totalMembers} />
       </div>
 
-      {/* ── Charts row ───────────────────────────────── */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1.6fr", gap: "16px" }}>
-        <StatusPieChart data={statusDist} />
-        <TeamBarChart members={members} />
-      </div>
+      {/* ── Status breakdown ─────────────────────────── */}
+      <StatusPieChart data={statusDist} />
 
-      {/* ── Individual performance snapshots ──────────── */}
+      {/* ── Per-member snapshot ──────────────────────── */}
       <Card>
         <h3
           style={{
@@ -76,7 +50,7 @@ export default function OverviewPage({ analytics }) {
             fontFamily: "var(--font-mono)",
           }}
         >
-          Individual Performance Snapshot
+          Team Snapshot
         </h3>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "12px" }}>
           {members.map((member) => (
@@ -93,9 +67,9 @@ export default function OverviewPage({ analytics }) {
               }}
             >
               <ProgressRing
-                percentage={member.efficiency || 0}
+                percentage={member.completionRate}
                 size={56}
-                color={getEfficiencyColor(member.efficiency || 0)}
+                color={getCompletionColor(member.completionRate)}
               >
                 <span
                   style={{
@@ -105,7 +79,7 @@ export default function OverviewPage({ analytics }) {
                     fontFamily: "var(--font-mono)",
                   }}
                 >
-                  {member.efficiency ?? "—"}
+                  {member.completionRate}%
                 </span>
               </ProgressRing>
 
@@ -129,10 +103,7 @@ export default function OverviewPage({ analytics }) {
                     fontFamily: "var(--font-mono)",
                   }}
                 >
-                  {member.completed}/{member.total} tasks • {member.totalSpentHrs}h logged
-                </div>
-                <div style={{ marginTop: "6px" }}>
-                  <EfficiencyBadge score={member.efficiency} />
+                  {member.completed}/{member.total} tasks done
                 </div>
               </div>
             </div>

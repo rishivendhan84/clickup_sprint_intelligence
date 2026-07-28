@@ -1,6 +1,6 @@
 /**
  * Circular progress ring rendered as SVG.
- * Used in member cards to visualise efficiency scores.
+ * Used in member cards to visualise completion rates.
  */
 
 export default function ProgressRing({

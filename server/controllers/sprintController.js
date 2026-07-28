@@ -60,7 +60,7 @@ export async function getSprintSummary(req, res, next) {
 
 /**
  * GET /api/sprint/:sprintId/tasks
- * Flat task list with variance data — for the Tasks table view.
+ * Flat task list with resolved status labels — for the Tasks table view.
  */
 export async function getSprintTasks(req, res, next) {
   try {

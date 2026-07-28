@@ -11,7 +11,7 @@
  */
 
 import clickupConfig from "../config/clickupConfig.js";
-import { msToDateString } from "../utils/timeUtils.js";
+import { msToDateString } from "../utils/dateUtils.js";
 import {
   getDemoSprintLists,
   getDemoSprintTasks,
@@ -60,8 +60,6 @@ function normaliseTask(raw) {
       email: a.email || null,
       profilePicture: a.profilePicture || null,
     })),
-    timeEstimate: raw.time_estimate || 0,   // ms
-    timeSpent: raw.time_spent || 0,         // ms
     dueDate: msToDateString(raw.due_date),
     startDate: msToDateString(raw.start_date),
     dateCreated: msToDateString(raw.date_created),
@@ -137,27 +135,6 @@ export async function getSprintTasks(listId) {
   return allTasks;
 }
 
-/**
- * Fetch detailed time entries for a specific task.
- */
-export async function getTaskTimeEntries(taskId) {
-  if (demoMode) return [];
-
-  const data = await clickupFetch(`/task/${taskId}/time`);
-  return (data.data || []).map((entry) => ({
-    id: entry.id,
-    description: entry.description || "",
-    start: +entry.start,
-    end: +entry.end,
-    durationMs: +entry.duration,
-    user: {
-      id: entry.user?.id,
-      username: entry.user?.username,
-    },
-    billable: entry.billable || false,
-    tags: (entry.tags || []).map((t) => t.name || t),
-  }));
-}
 
 /**
  * Fetch all workspace members.
