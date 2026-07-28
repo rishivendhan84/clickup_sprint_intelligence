@@ -12,8 +12,14 @@
 
 import clickupConfig from "../config/clickupConfig.js";
 import { msToDateString } from "../utils/timeUtils.js";
+import {
+  getDemoSprintLists,
+  getDemoSprintTasks,
+  getDemoWorkspaceMembers,
+  getDemoTaskById,
+} from "./demoData.js";
 
-const { baseUrl, headers, workspaceId, sprintFolderId } = clickupConfig;
+const { baseUrl, headers, workspaceId, sprintFolderId, demoMode } = clickupConfig;
 
 // ─── Internal helpers ──────────────────────────────────────────────
 
@@ -75,6 +81,8 @@ function normaliseTask(raw) {
  * Returns [{id, name, current}] sorted newest-first.
  */
 export async function getSprintLists() {
+  if (demoMode) return getDemoSprintLists();
+
   if (!sprintFolderId) {
     throw new Error("CLICKUP_SPRINT_FOLDER_ID not configured");
   }
@@ -100,6 +108,8 @@ export async function getSprintLists() {
  * Handles ClickUp's pagination automatically.
  */
 export async function getSprintTasks(listId) {
+  if (demoMode) return getDemoSprintTasks(listId);
+
   const allTasks = [];
   let page = 0;
   let hasMore = true;
@@ -115,7 +125,9 @@ export async function getSprintTasks(listId) {
     const tasks = data.tasks || [];
     allTasks.push(...tasks.map(normaliseTask));
 
-    hasMore = !data.last_page;
+    // Stop on an explicit last_page flag, or on an empty page — older ClickUp
+    // responses omit last_page, and `!undefined` would loop to the safety valve.
+    hasMore = data.last_page === false && tasks.length > 0;
     page++;
 
     // Safety valve — ClickUp has a practical limit
@@ -129,6 +141,8 @@ export async function getSprintTasks(listId) {
  * Fetch detailed time entries for a specific task.
  */
 export async function getTaskTimeEntries(taskId) {
+  if (demoMode) return [];
+
   const data = await clickupFetch(`/task/${taskId}/time`);
   return (data.data || []).map((entry) => ({
     id: entry.id,
@@ -149,6 +163,8 @@ export async function getTaskTimeEntries(taskId) {
  * Fetch all workspace members.
  */
 export async function getWorkspaceMembers() {
+  if (demoMode) return getDemoWorkspaceMembers();
+
   const data = await clickupFetch(`/team/${workspaceId}`);
   const team = data.team || data;
   return (team.members || []).map((m) => {
@@ -169,6 +185,8 @@ export async function getWorkspaceMembers() {
  * Fetch a single task by ID (for drill-down views).
  */
 export async function getTaskById(taskId) {
+  if (demoMode) return getDemoTaskById(taskId);
+
   const raw = await clickupFetch(`/task/${taskId}`);
   return normaliseTask(raw);
 }

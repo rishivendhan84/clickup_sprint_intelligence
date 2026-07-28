@@ -5,7 +5,7 @@
  * from ClickUp. In production, also serves the built React frontend.
  */
 
-import "dotenv/config";
+import "./config/loadEnv.js";
 import express from "express";
 import cors from "cors";
 import { fileURLToPath } from "url";
@@ -67,15 +67,22 @@ app.use(errorHandler);
 
 app.listen(PORT, () => {
   console.log("");
-  console.log("  ┌──────────────────────────────────────┐");
-  console.log("  │   Sprint Intelligence API Server      │");
-  console.log(`  │   http://localhost:${PORT}               │`);
-  console.log("  │                                        │");
-  console.log("  │   GET /api/sprints                     │");
-  console.log("  │   GET /api/sprint/:id/summary          │");
-  console.log("  │   GET /api/sprint/:id/tasks            │");
-  console.log("  │   GET /api/sprint/:id/members          │");
-  console.log("  │   GET /api/sprint/:id/wbs              │");
-  console.log("  └──────────────────────────────────────┘");
+  const lines = [
+    "Sprint Intelligence API Server",
+    `http://localhost:${PORT}`,
+    "",
+    "GET /api/sprints",
+    "GET /api/sprint/:id/summary",
+    "GET /api/sprint/:id/tasks",
+    "GET /api/sprint/:id/members",
+    "GET /api/sprint/:id/wbs",
+  ];
+  const width = Math.max(...lines.map((l) => l.length)) + 6;
+
+  console.log(`  ┌${"─".repeat(width)}┐`);
+  for (const line of lines) {
+    console.log(`  │   ${line.padEnd(width - 3)}│`);
+  }
+  console.log(`  └${"─".repeat(width)}┘`);
   console.log("");
 });
