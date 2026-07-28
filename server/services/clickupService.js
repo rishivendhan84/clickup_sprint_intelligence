@@ -74,16 +74,75 @@ function normaliseTask(raw) {
 
 // ─── Public API ────────────────────────────────────────────────────
 
+/** Newest-first by name, so "Sprint 21" sorts above "Sprint 20". */
+function sortAndMarkCurrent(lists) {
+  lists.sort((a, b) => b.name.localeCompare(a.name, undefined, { numeric: true }));
+  if (lists.length > 0) lists[0].current = true;
+  return lists;
+}
+
 /**
- * List all sprint lists inside the Sprint Board folder.
+ * Walk the workspace to find every list the token can see.
+ *
+ * Used when CLICKUP_SPRINT_FOLDER_ID isn't configured. Finding that ID by hand
+ * means digging through ClickUp URLs before the app will start, which is a
+ * chicken-and-egg problem on first run — so discover it instead.
+ *
+ * Lists inside a folder whose name looks sprint-related are preferred; if none
+ * match, every list is returned so the dropdown is still usable.
+ */
+async function discoverSprintLists() {
+  const { spaces = [] } = await clickupFetch(`/team/${workspaceId}/space`);
+
+  const all = [];
+  for (const space of spaces) {
+    const { folders = [] } = await clickupFetch(`/space/${space.id}/folder`);
+    for (const folder of folders) {
+      for (const l of folder.lists || []) {
+        all.push({
+          id: l.id,
+          name: l.name,
+          taskCount: l.task_count ?? null,
+          folderId: folder.id,
+          folderName: folder.name,
+          spaceName: space.name,
+        });
+      }
+    }
+
+    // Lists that live directly in a space, outside any folder
+    const { lists = [] } = await clickupFetch(`/space/${space.id}/list`);
+    for (const l of lists) {
+      all.push({
+        id: l.id,
+        name: l.name,
+        taskCount: l.task_count ?? null,
+        folderId: null,
+        folderName: null,
+        spaceName: space.name,
+      });
+    }
+  }
+
+  const looksLikeSprint = (s) => /sprint|iteration/i.test(s || "");
+  const preferred = all.filter(
+    (l) => looksLikeSprint(l.folderName) || looksLikeSprint(l.name)
+  );
+
+  return sortAndMarkCurrent(preferred.length > 0 ? preferred : all);
+}
+
+/**
+ * List available sprint lists.
+ *
+ * Uses CLICKUP_SPRINT_FOLDER_ID when set; otherwise discovers them by walking
+ * the workspace, so the app runs with only a token and a workspace ID.
  * Returns [{id, name, current}] sorted newest-first.
  */
 export async function getSprintLists() {
   if (demoMode) return getDemoSprintLists();
 
-  if (!sprintFolderId) {
-    throw new Error("CLICKUP_SPRINT_FOLDER_ID not configured");
-  }
+  if (!sprintFolderId) return discoverSprintLists();
 
   const data = await clickupFetch(`/folder/${sprintFolderId}`);
   const lists = (data.lists || []).map((l) => ({
@@ -92,13 +151,11 @@ export async function getSprintLists() {
     taskCount: l.task_count ?? null,
   }));
 
-  // Sort by name descending (Sprint 21 > Sprint 20 …)
-  lists.sort((a, b) => b.name.localeCompare(a.name, undefined, { numeric: true }));
+  // A misconfigured folder ID would otherwise present as an empty dropdown with
+  // no explanation. Fall back to discovery rather than showing nothing.
+  if (lists.length === 0) return discoverSprintLists();
 
-  // Mark the first one (highest number) as current
-  if (lists.length > 0) lists[0].current = true;
-
-  return lists;
+  return sortAndMarkCurrent(lists);
 }
 
 /**

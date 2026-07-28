@@ -120,10 +120,36 @@ for (const space of spaces) {
 }
 
 if (found === 0) {
-  warn("No folders found. /api/sprints reads sprint lists from a folder —");
-  warn("create a folder holding your sprint lists, or run with DEMO_MODE=true.");
+  warn("No folders found in this workspace.");
 } else if (!folderId) {
-  warn("CLICKUP_SPRINT_FOLDER_ID is not set — copy one of the IDs above into .env.");
+  ok("CLICKUP_SPRINT_FOLDER_ID not set — the app will auto-discover sprint lists.");
+  console.log("      Set it to one of the IDs above to pin a specific folder.");
+}
+
+// ─── 3b. Show the lists the app would actually offer ────────────────
+
+console.log("\n  Lists the app would show in the sprint dropdown:");
+let listCount = 0;
+for (const space of spaces) {
+  const folders = (await call(`/space/${space.id}/folder`)).folders || [];
+  for (const f of folders) {
+    for (const l of f.lists || []) {
+      console.log(`    ${l.id}  ${space.name} / ${f.name} / ${l.name}  — ${l.task_count ?? "?"} tasks`);
+      listCount++;
+    }
+  }
+  const loose = (await call(`/space/${space.id}/list`)).lists || [];
+  for (const l of loose) {
+    console.log(`    ${l.id}  ${space.name} / (no folder) / ${l.name}  — ${l.task_count ?? "?"} tasks`);
+    listCount++;
+  }
+}
+
+if (listCount === 0) {
+  bad("No lists found anywhere in this workspace — there are no tasks to report on.");
+  warn("The dashboard needs ClickUp lists containing tasks. Create them, or use DEMO_MODE=true.");
+} else {
+  ok(`${listCount} list(s) available`);
 }
 
 // ─── 4. Confirm the configured folder actually resolves ─────────────
