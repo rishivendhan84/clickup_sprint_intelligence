@@ -164,44 +164,77 @@ task per person, so most days are a status dropdown and a tweak — target under
 
 The existing sheet stays available read-only as the historical archive.
 
-### 3.3 How status lands in ClickUp
+### 3.3 How status lands in ClickUp — **DECIDED: comment on the real sprint task**
 
-ClickUp is task-centric; a standup entry is person-and-day-centric. Three ways to
-bridge that, and the volume for a 10-working-day sprint with 9 people:
+Status is posted as a comment on the **actual ClickUp task the work belongs to**.
+This gives the highest fidelity — progress lives on the work item, visible to
+anyone looking at that task, not in a parallel status silo.
 
-| Option | Volume | Trade-off |
+The cost is that it needs a task mapping, and the standup data is free text. Two
+measured facts from the existing 60 rows determine the design:
+
+**(a) 28% of entries have no sprint task to attach to.**
+
+| | Rows | Examples |
 |---|---|---|
-| One task per standup entry | ~90 tasks/sprint | Unusable noise. Rejected. |
-| **Task per person per sprint + daily comment** | **9 tasks/sprint, 9 comments/day** | **Recommended.** Assignee = the person, so it appears in their ClickUp inbox. Clean per-person history. |
-| Daily digest Doc page | 1 page/day | Reads exactly like the sheet — ideal for the 9:15 meeting. Poor for querying. |
-| Comment on the real sprint task | varies | Best fidelity, but requires mapping free-text task names → task IDs. Defer to Phase 6. |
+| Plausibly maps to a sprint task | 43/60 (72%) | "Cache storage in PPS", "NPS Bug fixing continues" |
+| Nothing to attach to | 17/60 (28%) | `on leave`, "KT from Yuvaraj for Shopify", "Training", "yet to start" |
 
-**Recommendation: task-per-person-per-sprint as the primary record, plus a
-generated daily digest Doc page.** That is ~10 API writes per day against a
-100 req/min limit — three orders of magnitude of headroom.
+Leave, knowledge-transfer sessions, training and onboarding are real reported work
+with no backlog item. They cannot be dropped.
 
-Blockers become **real ClickUp tasks** in a Blockers list, assigned to the person
-who can unblock it, linked to the affected person's status task. That fixes §2.3
-properly: a blocker gets an owner and an age, not a text cell.
+**(b) One standup row frequently covers several tasks.**
+
+> "Prototype Phase 2 **+** SEO Agent task"
+> "Blog Main page (2nd half) **+** CSAT (1st half)"
+> "Bug fixed & deployed, Testing in Progress, SSO deployment support continues"
+
+So a row is not one status — it is *n* statuses sharing a cell.
+
+**Design that follows from (a) and (b):**
+
+1. **Map at entry time, not after the fact.** The entry grid gives Bhuvana a
+   searchable picker scoped to that member's assigned tasks in the current sprint.
+   She selects the task instead of typing its name. This converts an unreliable
+   fuzzy-match into an exact reference chosen by a human who was just on the call —
+   reliable by construction, and the reason §2's data-quality problems don't
+   reappear here.
+2. **A member's day is a list of lines, not one line.** Each line = one task +
+   status + note. The grid lets her add a second or third line for a member; most
+   days will be one.
+3. **Unmappable work gets a per-person catch-all.** One task per member per sprint,
+   `Non-sprint work — <name> — S1`, receives leave, KT, training and admin entries.
+   Nothing is lost, and the 28% stays visible.
+4. **Idempotency key becomes `(date, member, clickup_task_id)`** — the hidden
+   comment marker is `<!-- si:2026-06-11:anandh:86xxxxx -->`.
+
+**Prerequisite — this option depends on ClickUp task hygiene.** Commenting on real
+sprint tasks requires those tasks to *exist* in ClickUp and be assigned to the
+right people. See §6.1 — this is currently **unverified and is the main risk to
+this approach**.
+
+Blockers become **real ClickUp tasks** in a Blockers list, assigned to whoever can
+unblock them, and linked to the task they block. That fixes §2.3 properly: a
+blocker gets an owner and an age, not a text cell.
 
 **Proposed ClickUp structure** (workspace `9013992885`, confirmed from a doc link
 in the sheet):
 
 ```
 Space: Scrum
-├── Folder: Daily Status
-│   ├── List: Daily Status — S1
-│   │   ├── Daily Status — Bhuvana — S1      (assignee: Bhuvana)
-│   │   ├── Daily Status — Karthick — S1
-│   │   └── … one per active member
-│   └── List: Blockers
-│       └── one task per blocker, assigned to the resolver
-└── Doc: Daily Standup Digest
-    └── one page per working day
+├── Folder: Sprints
+│   └── List: Sprint S1          ← real work items, comments land here
+├── List: Non-sprint work
+│   ├── Non-sprint work — Bhuvana — S1     (leave / KT / training)
+│   └── … one per active member
+└── List: Blockers
+    └── one task per blocker, assigned to the resolver
 ```
 
-Custom fields on each status task: `Latest Status`, `Last Updated`, `Blocked`,
-`Project`.
+Optional custom fields on sprint tasks: `Latest Status`, `Last Updated`, `Blocked`
+— so the current state is visible without opening the comment thread.
+
+Volume: ~12–15 comments/day against a 100 req/min limit. No rate-limit concern.
 
 ---
 
@@ -255,9 +288,13 @@ sprints (
 
 standup_entries (
   id, entry_date, member_id, project_id,
-  task_text, status, comments,
+  clickup_task_id,                   -- NULL = non-sprint work (leave/KT/training)
+  line_no,                           -- a member's day can have several lines (§3.3b)
+  task_text,                         -- free text kept for readability + audit
+  status, comments,
   entered_by, created_at, updated_at,
-  UNIQUE (entry_date, member_id)     -- idempotency key
+  UNIQUE (entry_date, member_id, line_no),
+  UNIQUE (entry_date, member_id, clickup_task_id)   -- idempotency key for the push
 )
 
 blockers (
@@ -285,6 +322,38 @@ excluded from status-mix charts, otherwise leave dilutes the team's progress pic
 ---
 
 ## 6. Reliability design
+
+### 6.1 Open risk — the team's ClickUp workspace is unverified
+
+**This is the biggest unknown in the plan and it gates §3.3.**
+
+What is confirmed:
+- The team's workspace is **`9013992885`** — proven by a doc link inside the sheet.
+- The ClickUp account currently connected to this session is a *different*
+  workspace, **`9016902951`**: two spaces with placeholder names ("Space",
+  "List"), **zero folders**, and **two members** (Amarnadh Chegerla, Sharan
+  Prathap) — neither of whom is on the scrum team.
+- Direct API access to `api.clickup.com` is blocked by this environment's egress
+  policy, so `9013992885` could not be inspected.
+
+What that means: **it is not yet known whether the sprint tasks exist in ClickUp
+at all.** Two signals suggest ClickUp may be thinly used for task tracking — the
+entire workbook contains exactly **one** ClickUp link (a document, not a task),
+while every actual tracker it references is a Google Sheet.
+
+Consequences for the chosen approach:
+
+| If… | Then |
+|---|---|
+| Sprint tasks exist in `9013992885`, assigned | §3.3 works as written. Proceed. |
+| Tasks exist but are unassigned / stale | Add a hygiene pass before Phase 5: assign owners, close dead items. |
+| Tasks do not exist | The backlog must be created in ClickUp first — a new phase before Phase 5, and a materially larger project. The Sprint Backlog tab is sample data (§2.6), so it cannot seed this. |
+
+**First action:** run `npm run verify` from a machine with network access to
+ClickUp. It lists every workspace, folder and list the token can see, which
+settles this in seconds.
+
+### 6.2 Delivery guarantees
 
 This is the part that determines whether the ClickUp push can be trusted.
 
@@ -315,7 +384,7 @@ This is the part that determines whether the ClickUp push can be trusted.
 
 | Screen | Who | Purpose |
 |---|---|---|
-| **Daily Entry grid** | Bhuvana | All active members as rows; task pre-filled from yesterday; status dropdown; one Save. Target < 3 min. |
+| **Daily Entry grid** | Bhuvana | All active members as rows; each row expandable to several task lines (§3.3b); task chosen from a picker scoped to that member's sprint tasks, pre-filled from yesterday; status dropdown; one Save. Target < 3 min. |
 | **Today's Standup** | Whole team, 9:15 AM | Read-only, grouped by project, blockers pinned at top. The screen that replaces reading the sheet aloud. |
 | **Person view** | Lead / 1:1s | One member across the sprint — "what has X been doing". |
 | **Blocker board** | Scrum master | Open blockers with age and owner. Age is the number that matters. |
@@ -330,28 +399,38 @@ open blockers, members on leave. **No efficiency, no hours.**
 
 | Phase | Scope | Depends on |
 |---|---|---|
-| **0. Decisions** | Resolve §2.1 identity, §2.4 sprint dates, confirm status enum | — |
+| **0. Verify ClickUp** | Run `npm run verify` against `9013992885`. Confirm sprint tasks exist and are assigned. Settle the sprint date range. | — |
 | **1. Strip** | Remove time/efficiency code (§4). App still runs on demo data. | — |
-| **2. Data layer** | Schema, member/project/sprint seed from the sheet's Team Directory | 0 |
-| **3. Entry + read** | Daily Entry grid, Today's Standup, Person view | 2 |
-| **4. Backfill** | One-time importer for the 60 existing rows (forward-fill merged cells, map legacy statuses, quarantine the 3 `Staus` rows) | 2 |
-| **5. ClickUp writer** | Outbox, idempotent push, reconciliation, digest doc | 3 |
+| **2. Data layer** | Schema, member/project/sprint seed. Merge the Anandh/Ananth records. | 0 |
+| **3. Entry + read** | Daily Entry grid with per-line task picker, Today's Standup, Person view | 2 |
+| **4. Backfill** | One-time importer for the 60 existing rows (forward-fill merged cells, map legacy statuses, split multi-task cells, quarantine the 3 `Staus` rows) | 2 |
+| **4a. Task hygiene** | **Only if §6.1 finds tasks missing/unassigned** — create or fix the ClickUp backlog | 0 |
+| **5. ClickUp writer** | Outbox, idempotent per-task comments, reconciliation | 3, 4a |
 | **6. Blockers** | Blocker board + ClickUp Blockers list | 5 |
 | **7. Cutover** | Run parallel one sprint, then sheet → read-only archive | 5 |
-| **8. Optional** | Link entries to real ClickUp sprint tasks; per-member self-service entry | 7 |
+| **8. Optional** | Per-member self-service entry; auto-suggest task from previous day | 7 |
 
 Phases 1–3 deliver standalone value: the team can run standup off the app before
-any ClickUp integration exists.
+any ClickUp integration exists. That sequencing is deliberate — it means a bad
+answer to §6.1 delays the ClickUp mirror without blocking the daily process.
 
 ---
 
-## 9. Open decisions
+## 9. Decisions
 
-1. **Anandh / Ananth / Anandharaj** — one person or several? (§2.1) *Blocking.*
-2. **Who enters** — Bhuvana for everyone (current), each member self-serve, or
-   hybrid (members enter, Bhuvana fills gaps)? Changes the entry UI substantially.
-3. **ClickUp shape** — confirm task-per-person-per-sprint + daily digest (§3.3).
-4. **Sheet's fate** — retire after cutover, or keep mirrored indefinitely?
-5. **Sprint definition** — which of the four date ranges is authoritative? (§2.4)
-6. **`CLICKUP_SPRINT_FOLDER_ID`** — still unverified; `npm run verify` will list
-   the real folder IDs once run somewhere with network access to ClickUp.
+### Settled
+
+| # | Decision | Consequence |
+|---|---|---|
+| 1 | **Anandh / Ananth / Anandharaj = one person** | One member record with three aliases. The Team Directory's separate "Ananth" row is a duplicate — the two differing allocations (full on Prod. Planning vs shared across NPS+H&C+Vitabea) must be merged into one real allocation. **This person is the QA for all four projects**, which makes them a single point of failure worth surfacing on the capacity view. |
+| 2 | **Bhuvana enters for everyone** | Keeps today's process. No per-user auth needed in v1 — one operator screen. Lowest change-management cost, fastest to build. Risk stays as it is today: if Bhuvana is away, nothing is logged — the Coverage screen (§7) makes that visible instead of silent. |
+| 3 | **Comment on the real sprint tasks** | Highest-fidelity option. Requires entry-time task picking, per-line entries, and a non-sprint catch-all (§3.3). **Gated on §6.1.** |
+| 4 | **Sheet becomes a read-only archive after cutover** | No write-back to Sheets, no second sync path. History stays viewable. One-time backfill only (Phase 4). |
+
+### Still open
+
+5. **Sprint definition** — which of the four conflicting date ranges is
+   authoritative? (§2.4) Needed before "current sprint" means anything.
+6. **Does workspace `9013992885` contain the sprint tasks?** (§6.1) The one
+   answer that could change the size of this project. Run `npm run verify`.
+7. **`CLICKUP_SPRINT_FOLDER_ID`** — unverified; same command resolves it.
