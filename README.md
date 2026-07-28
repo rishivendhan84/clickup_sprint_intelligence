@@ -21,6 +21,8 @@ sprint-intelligence/
 │   │   └── errorHandler.js          # Centralised error responses
 │   ├── routes/
 │   │   └── sprintRoutes.js          # REST endpoint definitions
+│   ├── scripts/
+│   │   └── verifyClickup.js         # `npm run verify` — connection doctor
 │   ├── services/
 │   │   ├── clickupService.js        # Direct ClickUp API integration
 │   │   ├── demoData.js              # Sample dataset used by DEMO_MODE
@@ -131,6 +133,14 @@ CLICKUP_SPRINT_FOLDER_ID=90137660410
 
 The server exits at startup if `CLICKUP_API_TOKEN` or `CLICKUP_WORKSPACE_ID` is missing and `DEMO_MODE` is off. `CLICKUP_SPRINT_FOLDER_ID` is only needed by `GET /api/sprints`.
 
+Then check the credentials before starting anything:
+
+```bash
+npm run verify
+```
+
+This calls ClickUp with your token and prints every workspace and folder it can see, marking the ones your `.env` points at — so you can copy the right IDs instead of hunting through ClickUp URLs. It exits non-zero if the setup can't serve real data, and distinguishes a rejected token from an unreachable host.
+
 **Getting your ClickUp API token:**
 1. Go to https://app.clickup.com/settings/apps
 2. Click "Generate" under Personal API Token
@@ -179,8 +189,13 @@ In production, the Express server serves the built React app from `client/dist/`
 
 ### Troubleshooting
 
+Run `npm run verify` first — it diagnoses most of the below in one shot.
+
 - **`Missing required env var(s)` on startup** — `.env` is absent or incomplete. Copy `.env.example`, or set `DEMO_MODE=true`.
 - **`CLICKUP_SPRINT_FOLDER_ID not configured`** — the sprint dropdown calls `/api/sprints`, which needs the folder ID.
+- **`ClickUp API 401`** — the token is wrong or was revoked. Regenerate it at https://app.clickup.com/settings/apps.
+- **`ClickUp API 403` / `Host not in allowlist`** — a proxy or firewall is blocking `api.clickup.com`, not a credential problem.
+- **Empty sprint dropdown** — `CLICKUP_SPRINT_FOLDER_ID` points at a folder with no lists. `npm run verify` lists the folders that do have them.
 - **Frontend loads but every request fails** — the backend isn't up. `curl http://localhost:3001/api/health` should return `{"status":"ok"}`.
 - **Port already in use** — set `PORT` for the backend; change `server.port` in `client/vite.config.js` (and the proxy target) for the frontend.
 
