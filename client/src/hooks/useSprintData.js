@@ -27,28 +27,41 @@ export default function useSprintData() {
 
   // ── Load sprint list ─────────────────────────────────────────────
 
+  /**
+   * Fetch the sprint list and auto-select the current sprint.
+   * Returns the selected sprint id, or null if there was nothing to select —
+   * callers use that to decide whether anything downstream will clear `loading`.
+   */
+  const loadSprints = useCallback(async () => {
+    try {
+      const data = await fetchSprints();
+      const list = data.sprints || [];
+      setSprints(list);
+
+      const current = list.find((s) => s.current) || list[0];
+      if (!current) return null;
+
+      setSelectedSprintId(current.id);
+      return current.id;
+    } catch (err) {
+      setError(err.message);
+      return null;
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
 
-    async function loadSprints() {
-      try {
-        const data = await fetchSprints();
-        if (cancelled) return;
+    (async () => {
+      const sprintId = await loadSprints();
+      // With no sprint selected the analytics effect below bails out, so this
+      // is the only place that can take the UI out of its initial loading
+      // state — otherwise a failed sprint list leaves the skeleton spinning.
+      if (!cancelled && !sprintId) setLoading(false);
+    })();
 
-        const list = data.sprints || [];
-        setSprints(list);
-
-        // Auto-select the current sprint
-        const current = list.find((s) => s.current) || list[0];
-        if (current) setSelectedSprintId(current.id);
-      } catch (err) {
-        if (!cancelled) setError(err.message);
-      }
-    }
-
-    loadSprints();
     return () => { cancelled = true; };
-  }, []);
+  }, [loadSprints]);
 
   // ── Load analytics when sprint changes ───────────────────────────
 
@@ -87,14 +100,26 @@ export default function useSprintData() {
   // ── Refresh: clear server + client cache, re-fetch ───────────────
 
   const refresh = useCallback(async () => {
-    if (!selectedSprintId) return;
-
     setLoading(true);
     setError(null);
     cacheRef.current = {}; // flush client cache
 
     try {
       await apiInvalidateCache();
+    } catch {
+      // Best-effort: a stale server cache shouldn't block the re-fetch below.
+    }
+
+    if (!selectedSprintId) {
+      // Nothing selected means the sprint list itself failed to load. Retry
+      // that instead of returning early — the analytics effect picks up the
+      // new selection from here.
+      const sprintId = await loadSprints();
+      if (!sprintId) setLoading(false);
+      return;
+    }
+
+    try {
       const data = await fetchSprintSummary(selectedSprintId);
       cacheRef.current[selectedSprintId] = data;
       setAnalytics(data);
@@ -103,7 +128,7 @@ export default function useSprintData() {
     } finally {
       setLoading(false);
     }
-  }, [selectedSprintId]);
+  }, [selectedSprintId, loadSprints]);
 
   // ── Select a different sprint ────────────────────────────────────
 
