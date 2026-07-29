@@ -14,13 +14,19 @@ const cache = new NodeCache({ stdTTL: CACHE_TTL, checkperiod: 60 });
 
 // ─── Helper to fetch + cache sprint tasks ──────────────────────────
 
+// An empty result is far more likely to be a transient/config problem than a
+// real answer, so it gets a much shorter TTL — otherwise a single bad fetch
+// pins the dashboard at "no tasks" for the full 5 minutes even after the
+// underlying problem is fixed.
+const EMPTY_CACHE_TTL = 15;
+
 async function getCachedSprintTasks(sprintId) {
   const cacheKey = `sprint_tasks_${sprintId}`;
   const cached = cache.get(cacheKey);
   if (cached) return cached;
 
   const tasks = await clickup.getSprintTasks(sprintId);
-  cache.set(cacheKey, tasks);
+  cache.set(cacheKey, tasks, tasks.length === 0 ? EMPTY_CACHE_TTL : CACHE_TTL);
   return tasks;
 }
 
@@ -134,6 +140,104 @@ export async function getWBSBreakdown(req, res, next) {
   } catch (err) {
     next(err);
   }
+}
+
+/**
+ * GET /api/diagnostics
+ * Walks the whole ClickUp chain — token → workspace → folder → lists → tasks —
+ * and reports the first link that breaks. This is the endpoint to hit when the
+ * dashboard says "no tasks" and it isn't obvious why.
+ */
+export async function runDiagnostics(req, res) {
+  const checks = [];
+  const record = (name, ok, detail, hint) =>
+    checks.push({ name, ok, detail, ...(hint && { hint }) });
+
+  let sprints = [];
+
+  try {
+    const workspaces = await clickup.getAuthorizedWorkspaces();
+    const configured = process.env.CLICKUP_WORKSPACE_ID;
+    const match = workspaces.find((w) => String(w.id) === String(configured));
+    record(
+      "token + workspace",
+      Boolean(match),
+      match
+        ? `Authenticated. Workspace ${configured} = "${match.name}".`
+        : `Token works but workspace ${configured} is not among the ones it can see: ${
+            workspaces.map((w) => `${w.id} (${w.name})`).join(", ") || "none"
+          }.`,
+      match ? null : "Set CLICKUP_WORKSPACE_ID to one of the IDs listed above."
+    );
+  } catch (err) {
+    record("token + workspace", false, err.message, err.hint);
+    return res.json({ ok: false, checks });
+  }
+
+  try {
+    const folder = await clickup.getSprintFolderMeta();
+    record(
+      "sprint folder",
+      folder.listCount > 0,
+      `Folder ${folder.id} "${folder.name}" in space "${folder.space}" holds ${folder.listCount} list(s).`,
+      folder.listCount > 0
+        ? null
+        : "The folder exists but has no lists. If sprints live directly in a Space, CLICKUP_SPRINT_FOLDER_ID is pointing at the wrong object."
+    );
+  } catch (err) {
+    record("sprint folder", false, err.message, err.hint);
+    return res.json({ ok: false, checks });
+  }
+
+  try {
+    sprints = await clickup.getSprintLists();
+    const current = sprints.find((s) => s.current);
+    const withTasks = sprints.filter((s) => (s.taskCount ?? 0) > 0);
+    record(
+      "sprint lists",
+      sprints.length > 0,
+      `${sprints.length} sprint(s); ${withTasks.length} with a non-zero task_count. ` +
+        `Auto-selected: ${current ? `"${current.name}" (${current.id}, task_count=${current.taskCount})` : "none"}.`,
+      current && (current.taskCount ?? 0) === 0 && withTasks.length > 0
+        ? `The auto-selected sprint is empty while ${withTasks
+            .map((s) => `"${s.name}"`)
+            .join(", ")} has tasks — pick one of those from the dropdown.`
+        : null
+    );
+  } catch (err) {
+    record("sprint lists", false, err.message, err.hint);
+    return res.json({ ok: false, checks });
+  }
+
+  const target =
+    req.query.sprintId || sprints.find((s) => s.current)?.id || sprints[0]?.id;
+
+  if (target) {
+    try {
+      const meta = await clickup.getListMeta(target);
+      const tasks = await clickup.getSprintTasks(target);
+      const withEstimates = tasks.filter((t) => t.timeEstimate > 0).length;
+      const withTime = tasks.filter((t) => t.timeSpent > 0).length;
+      const unassigned = tasks.filter((t) => t.assignees.length === 0).length;
+
+      record(
+        "task fetch",
+        tasks.length > 0,
+        `List ${target} "${meta.name}" (archived=${meta.archived}, ClickUp task_count=${meta.taskCount}) ` +
+          `returned ${tasks.length} task(s): ${withEstimates} with a time estimate, ` +
+          `${withTime} with tracked time, ${unassigned} unassigned.`,
+        tasks.length === 0
+          ? "Empty in both live and archived mode. Confirm this List ID has tasks in the ClickUp UI, and that the token's user is a member of the Space."
+          : withEstimates === 0
+            ? "Tasks came through but none have time estimates — every efficiency metric will read 0/No Data until estimates are set in ClickUp."
+            : null
+      );
+    } catch (err) {
+      record("task fetch", false, err.message, err.hint);
+    }
+  }
+
+  res.json({ ok: checks.every((c) => c.ok), checks });
 }
 
 /**

@@ -25,6 +25,8 @@ sprint-intelligence/
 │   │   └── sprintAnalyticsService.js# Data processing & metric computation
 │   ├── utils/
 │   │   └── timeUtils.js             # ms ↔ hours conversions
+│   ├── scripts/
+│   │   └── diagnose.js              # ClickUp connectivity diagnostic
 │   └── server.js                    # Express entry point
 │
 ├── client/                          # React frontend (Vite)
@@ -155,6 +157,7 @@ In production, the Express server serves the built React app from `client/dist/`
 | GET | `/api/sprint/:id/members` | Per-member performance metrics |
 | GET | `/api/sprint/:id/wbs` | Per-project breakdown |
 | GET | `/api/sprint/:id/member/:name` | Single member deep-dive |
+| GET | `/api/diagnostics` | Step-by-step ClickUp connectivity check |
 | POST | `/api/cache/invalidate` | Clear server cache |
 | GET | `/api/health` | Health check |
 
@@ -190,6 +193,37 @@ In production, the Express server serves the built React app from `client/dist/`
   "tasks": [...]
 }
 ```
+
+---
+
+## Troubleshooting: "ClickUp returned no tasks"
+
+Run the diagnostic before changing anything — it walks the whole chain
+(token → workspace → folder → sprint lists → tasks) and stops at the first
+broken link:
+
+```bash
+npm run diagnose              # checks the auto-selected sprint
+npm run diagnose 901325950934 # checks a specific list
+```
+
+The same checks are available over HTTP at `GET /api/diagnostics`
+(add `?sprintId=…` to target one sprint).
+
+The usual causes, in order of how often they bite:
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Dropdown is populated, dashboard shows 0 tasks | The auto-selected sprint is the *next* sprint — created in ClickUp but not started, so it holds no tasks | Fixed: `current` is now chosen by sprint start/due window, falling back to the newest sprint with a non-zero `task_count`, and only then to the newest by name |
+| A past sprint shows 0 tasks | The sprint was archived in ClickUp. ClickUp omits archived tasks unless `archived=true`, and returns `200 OK` with an empty array rather than an error | Fixed: an empty live result is retried with `archived=true` |
+| Every endpoint 404s | `CLICKUP_SPRINT_FOLDER_ID` holds a **Space** or **List** ID. All three ID types look identical | Use the Folder ID; `npm run diagnose` reports which one you have |
+| `401 Team not authorized` | Token is invalid, has a `Bearer ` prefix, or belongs to a user who is not in that Space | Use a raw Personal API Token (`pk_…`) for a user who can see the Sprint Folder |
+| Tasks load but all metrics read 0 / "No Data" | Tasks have no **time estimates** in ClickUp — efficiency is `estimate ÷ actual` | Set estimates in ClickUp; the diagnostic reports how many tasks have them |
+| A status never counts as done | The status name is not in `STATUS_GROUPS` | Add it in `server/services/sprintAnalyticsService.js`; the diagnostic lists unmapped statuses |
+
+Note that an empty result is cached for only 15 seconds (successful results use
+`CACHE_TTL_SECONDS`), so a fix in ClickUp shows up on the next refresh rather
+than five minutes later.
 
 ---
 

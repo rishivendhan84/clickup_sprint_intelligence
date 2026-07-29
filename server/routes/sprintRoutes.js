@@ -6,6 +6,7 @@ import {
   getSprintMembers,
   getMemberDetail,
   getWBSBreakdown,
+  runDiagnostics,
   invalidateCache,
 } from "../controllers/sprintController.js";
 
@@ -22,6 +23,9 @@ router.get("/sprint/:sprintId/wbs", getWBSBreakdown);
 
 // Member drill-down
 router.get("/sprint/:sprintId/member/:memberName", getMemberDetail);
+
+// Connectivity / "why is this empty?" diagnostics
+router.get("/diagnostics", runDiagnostics);
 
 // Cache management
 router.post("/cache/invalidate", invalidateCache);
