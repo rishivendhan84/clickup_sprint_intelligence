@@ -177,9 +177,49 @@ async function main() {
   }
   ok(`${lists.length} list(s) available`);
 
-  const withTasks = lists.filter((l) => (l.task_count ?? 0) > 0).length;
-  if (withTasks === 0) {
-    warn("Every list is empty — the dashboard will load but show nothing.");
+  // ─── 4. Probe the list the dashboard would actually open ─────────
+  //
+  // A list can report a task_count yet still return nothing to the app if the
+  // tasks are archived, or live in a different space than expected. Fetch the
+  // way the app does so an empty dashboard has an explanation.
+
+  const sprintish = lists.filter((l) => /sprint|iteration/i.test(`${l.where} ${l.name}`));
+  const target = (sprintish.length ? sprintish : lists)
+    .slice()
+    .sort((a, b) => b.name.localeCompare(a.name, undefined, { numeric: true }))[0];
+
+  console.log(`\n  Probing "${target.where} / ${target.name}" (the list the dashboard opens first):`);
+
+  const q = "subtasks=true&include_closed=true&order_by=due_date&page=0";
+  const probe = await call(token, `/list/${target.id}/task?${q}`);
+  const tasks = probe.tasks || [];
+
+  console.log(`    tasks returned : ${tasks.length}`);
+  console.log(`    last_page flag : ${probe.last_page ?? "(absent)"}`);
+
+  if (tasks.length === 0) {
+    bad("This list returns no tasks, which is why the dashboard is empty.");
+    if ((target.task_count ?? 0) > 0) {
+      warn(`ClickUp reports task_count=${target.task_count} but the task endpoint returns none —`);
+      warn("the tasks are likely archived, or the token's user lacks access to them.");
+    } else {
+      warn("The list genuinely has no tasks. Add tasks in ClickUp, or pick a different list.");
+    }
+    return 1;
+  }
+
+  const assigned = tasks.filter((t) => (t.assignees || []).length > 0).length;
+  const statuses = [...new Set(tasks.map((t) => t.status?.status).filter(Boolean))];
+  const people = [...new Set(tasks.flatMap((t) => (t.assignees || []).map((a) => a.username)))];
+
+  ok(`${tasks.length} task(s) fetched`);
+  console.log(`    with assignees : ${assigned}/${tasks.length}`);
+  console.log(`    statuses       : ${statuses.join(", ") || "(none)"}`);
+  console.log(`    people         : ${people.join(", ") || "(none)"}`);
+  console.log(`    sample         : ${tasks.slice(0, 3).map((t) => t.name).join(" | ")}`);
+
+  if (assigned === 0) {
+    warn("No task has an assignee — the Team tab will be empty even though tasks exist.");
   }
 
   console.log("\n  Ready — run `npm run dev` and open http://localhost:5173\n");

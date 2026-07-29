@@ -158,8 +158,11 @@ export async function getSprintLists() {
   return sortAndMarkCurrent(lists);
 }
 
+/** ClickUp returns at most this many tasks per page. */
+const PAGE_SIZE = 100;
+
 /**
- * Fetch every task inside a sprint list, with time data.
+ * Fetch every task inside a sprint list.
  * Handles ClickUp's pagination automatically.
  */
 export async function getSprintTasks(listId) {
@@ -180,9 +183,15 @@ export async function getSprintTasks(listId) {
     const tasks = data.tasks || [];
     allTasks.push(...tasks.map(normaliseTask));
 
-    // Stop on an explicit last_page flag, or on an empty page — older ClickUp
-    // responses omit last_page, and `!undefined` would loop to the safety valve.
-    hasMore = data.last_page === false && tasks.length > 0;
+    // Trust last_page when ClickUp sends it. When it's absent, fall back to
+    // page fullness: a short page means the end, a full one means there is
+    // probably more. Relying on `!data.last_page` alone would either loop to
+    // the safety valve or stop after page 0 depending on which way it's wrong.
+    if (data.last_page === true || tasks.length === 0) {
+      hasMore = false;
+    } else {
+      hasMore = data.last_page === false || tasks.length >= PAGE_SIZE;
+    }
     page++;
 
     // Safety valve — ClickUp has a practical limit
