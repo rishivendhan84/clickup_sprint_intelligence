@@ -28,51 +28,7 @@ export default function WBSDashboard({ analytics }) {
           </div>
 
           {/* Progress bar */}
-          <div style={{ marginBottom: "14px" }}>
-            <ProgressBar percentage={proj.completionRate} height={6} />
-          </div>
-
-          {/* Bottom metrics */}
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              fontSize: "11px",
-              fontFamily: "var(--font-mono)",
-            }}
-          >
-            <div>
-              <span style={{ color: "var(--text-muted)" }}>Est: </span>
-              <span style={{ color: "var(--text)", fontWeight: 600 }}>{proj.totalEstimateHrs}h</span>
-            </div>
-            <div>
-              <span style={{ color: "var(--text-muted)" }}>Actual: </span>
-              <span
-                style={{
-                  color: proj.totalSpentHrs > proj.totalEstimateHrs ? "var(--red)" : "var(--green)",
-                  fontWeight: 600,
-                }}
-              >
-                {proj.totalSpentHrs}h
-              </span>
-            </div>
-            <div>
-              <span style={{ color: "var(--text-muted)" }}>Eff: </span>
-              <span
-                style={{
-                  color:
-                    proj.efficiency >= 80
-                      ? "var(--green)"
-                      : proj.efficiency >= 60
-                      ? "var(--amber)"
-                      : "var(--red)",
-                  fontWeight: 600,
-                }}
-              >
-                {proj.efficiency ?? "—"}%
-              </span>
-            </div>
-          </div>
+          <ProgressBar percentage={proj.completionRate} height={6} />
         </Card>
       ))}
     </div>

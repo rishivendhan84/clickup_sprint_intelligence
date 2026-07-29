@@ -1,7 +1,7 @@
 import { useState } from "react";
 import Card from "../components/Card.jsx";
-import EfficiencyBadge from "../components/EfficiencyBadge.jsx";
 import MemberTaskTable from "../components/tables/MemberTaskTable.jsx";
+import { getCompletionColor } from "../utils/statusMapper.js";
 
 export default function TeamPage({ analytics }) {
   const [expandedMember, setExpandedMember] = useState(null);
@@ -61,23 +61,12 @@ export default function TeamPage({ analytics }) {
               {/* Metrics strip */}
               <div style={{ display: "flex", gap: "32px", alignItems: "center" }}>
                 <MetricBlock
-                  label="Efficiency"
-                  value={`${member.efficiency ?? "—"}%`}
-                  color={
-                    member.efficiency >= 80
-                      ? "var(--green)"
-                      : member.efficiency >= 60
-                      ? "var(--amber)"
-                      : "var(--red)"
-                  }
+                  label="Completion"
+                  value={`${member.completionRate}%`}
+                  color={getCompletionColor(member.completionRate)}
                   large
                 />
-                <MetricBlock
-                  label="Est/Actual"
-                  value={`${member.totalEstimateHrs}h / ${member.totalSpentHrs}h`}
-                />
-                <MetricBlock label="Completion" value={`${member.completionRate}%`} />
-                <EfficiencyBadge score={member.efficiency} />
+                <MetricBlock label="Done" value={`${member.completed} / ${member.total}`} />
                 <span
                   style={{
                     color: "var(--text-muted)",

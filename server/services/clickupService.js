@@ -11,9 +11,15 @@
  */
 
 import clickupConfig from "../config/clickupConfig.js";
-import { msToDateString } from "../utils/timeUtils.js";
+import { msToDateString } from "../utils/dateUtils.js";
+import {
+  getDemoSprintLists,
+  getDemoSprintTasks,
+  getDemoWorkspaceMembers,
+  getDemoTaskById,
+} from "./demoData.js";
 
-const { baseUrl, headers, workspaceId, sprintFolderId } = clickupConfig;
+const { baseUrl, headers, workspaceId, sprintFolderId, demoMode } = clickupConfig;
 
 // ─── Internal helpers ──────────────────────────────────────────────
 
@@ -54,8 +60,6 @@ function normaliseTask(raw) {
       email: a.email || null,
       profilePicture: a.profilePicture || null,
     })),
-    timeEstimate: raw.time_estimate || 0,   // ms
-    timeSpent: raw.time_spent || 0,         // ms
     dueDate: msToDateString(raw.due_date),
     startDate: msToDateString(raw.start_date),
     dateCreated: msToDateString(raw.date_created),
@@ -70,14 +74,75 @@ function normaliseTask(raw) {
 
 // ─── Public API ────────────────────────────────────────────────────
 
+/** Newest-first by name, so "Sprint 21" sorts above "Sprint 20". */
+function sortAndMarkCurrent(lists) {
+  lists.sort((a, b) => b.name.localeCompare(a.name, undefined, { numeric: true }));
+  if (lists.length > 0) lists[0].current = true;
+  return lists;
+}
+
 /**
- * List all sprint lists inside the Sprint Board folder.
+ * Walk the workspace to find every list the token can see.
+ *
+ * Used when CLICKUP_SPRINT_FOLDER_ID isn't configured. Finding that ID by hand
+ * means digging through ClickUp URLs before the app will start, which is a
+ * chicken-and-egg problem on first run — so discover it instead.
+ *
+ * Lists inside a folder whose name looks sprint-related are preferred; if none
+ * match, every list is returned so the dropdown is still usable.
+ */
+async function discoverSprintLists() {
+  const { spaces = [] } = await clickupFetch(`/team/${workspaceId}/space`);
+
+  const all = [];
+  for (const space of spaces) {
+    const { folders = [] } = await clickupFetch(`/space/${space.id}/folder`);
+    for (const folder of folders) {
+      for (const l of folder.lists || []) {
+        all.push({
+          id: l.id,
+          name: l.name,
+          taskCount: l.task_count ?? null,
+          folderId: folder.id,
+          folderName: folder.name,
+          spaceName: space.name,
+        });
+      }
+    }
+
+    // Lists that live directly in a space, outside any folder
+    const { lists = [] } = await clickupFetch(`/space/${space.id}/list`);
+    for (const l of lists) {
+      all.push({
+        id: l.id,
+        name: l.name,
+        taskCount: l.task_count ?? null,
+        folderId: null,
+        folderName: null,
+        spaceName: space.name,
+      });
+    }
+  }
+
+  const looksLikeSprint = (s) => /sprint|iteration/i.test(s || "");
+  const preferred = all.filter(
+    (l) => looksLikeSprint(l.folderName) || looksLikeSprint(l.name)
+  );
+
+  return sortAndMarkCurrent(preferred.length > 0 ? preferred : all);
+}
+
+/**
+ * List available sprint lists.
+ *
+ * Uses CLICKUP_SPRINT_FOLDER_ID when set; otherwise discovers them by walking
+ * the workspace, so the app runs with only a token and a workspace ID.
  * Returns [{id, name, current}] sorted newest-first.
  */
 export async function getSprintLists() {
-  if (!sprintFolderId) {
-    throw new Error("CLICKUP_SPRINT_FOLDER_ID not configured");
-  }
+  if (demoMode) return getDemoSprintLists();
+
+  if (!sprintFolderId) return discoverSprintLists();
 
   const data = await clickupFetch(`/folder/${sprintFolderId}`);
   const lists = (data.lists || []).map((l) => ({
@@ -86,20 +151,23 @@ export async function getSprintLists() {
     taskCount: l.task_count ?? null,
   }));
 
-  // Sort by name descending (Sprint 21 > Sprint 20 …)
-  lists.sort((a, b) => b.name.localeCompare(a.name, undefined, { numeric: true }));
+  // A misconfigured folder ID would otherwise present as an empty dropdown with
+  // no explanation. Fall back to discovery rather than showing nothing.
+  if (lists.length === 0) return discoverSprintLists();
 
-  // Mark the first one (highest number) as current
-  if (lists.length > 0) lists[0].current = true;
-
-  return lists;
+  return sortAndMarkCurrent(lists);
 }
 
+/** ClickUp returns at most this many tasks per page. */
+const PAGE_SIZE = 100;
+
 /**
- * Fetch every task inside a sprint list, with time data.
+ * Fetch every task inside a sprint list.
  * Handles ClickUp's pagination automatically.
  */
 export async function getSprintTasks(listId) {
+  if (demoMode) return getDemoSprintTasks(listId);
+
   const allTasks = [];
   let page = 0;
   let hasMore = true;
@@ -115,7 +183,15 @@ export async function getSprintTasks(listId) {
     const tasks = data.tasks || [];
     allTasks.push(...tasks.map(normaliseTask));
 
-    hasMore = !data.last_page;
+    // Trust last_page when ClickUp sends it. When it's absent, fall back to
+    // page fullness: a short page means the end, a full one means there is
+    // probably more. Relying on `!data.last_page` alone would either loop to
+    // the safety valve or stop after page 0 depending on which way it's wrong.
+    if (data.last_page === true || tasks.length === 0) {
+      hasMore = false;
+    } else {
+      hasMore = data.last_page === false || tasks.length >= PAGE_SIZE;
+    }
     page++;
 
     // Safety valve — ClickUp has a practical limit
@@ -125,30 +201,13 @@ export async function getSprintTasks(listId) {
   return allTasks;
 }
 
-/**
- * Fetch detailed time entries for a specific task.
- */
-export async function getTaskTimeEntries(taskId) {
-  const data = await clickupFetch(`/task/${taskId}/time`);
-  return (data.data || []).map((entry) => ({
-    id: entry.id,
-    description: entry.description || "",
-    start: +entry.start,
-    end: +entry.end,
-    durationMs: +entry.duration,
-    user: {
-      id: entry.user?.id,
-      username: entry.user?.username,
-    },
-    billable: entry.billable || false,
-    tags: (entry.tags || []).map((t) => t.name || t),
-  }));
-}
 
 /**
  * Fetch all workspace members.
  */
 export async function getWorkspaceMembers() {
+  if (demoMode) return getDemoWorkspaceMembers();
+
   const data = await clickupFetch(`/team/${workspaceId}`);
   const team = data.team || data;
   return (team.members || []).map((m) => {
@@ -169,6 +228,8 @@ export async function getWorkspaceMembers() {
  * Fetch a single task by ID (for drill-down views).
  */
 export async function getTaskById(taskId) {
+  if (demoMode) return getDemoTaskById(taskId);
+
   const raw = await clickupFetch(`/task/${taskId}`);
   return normaliseTask(raw);
 }

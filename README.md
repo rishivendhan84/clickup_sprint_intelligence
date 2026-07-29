@@ -13,15 +13,19 @@ sprint-intelligence/
 │
 ├── server/                          # Express API (Node.js)
 │   ├── config/
-│   │   └── clickupConfig.js         # ClickUp API credentials & constants
+│   │   ├── clickupConfig.js         # ClickUp API credentials & constants
+│   │   └── loadEnv.js               # Loads .env from repo root or server/
 │   ├── controllers/
 │   │   └── sprintController.js      # Route handlers (thin layer)
 │   ├── middleware/
 │   │   └── errorHandler.js          # Centralised error responses
 │   ├── routes/
 │   │   └── sprintRoutes.js          # REST endpoint definitions
+│   ├── scripts/
+│   │   └── verifyClickup.js         # `npm run verify` — connection doctor
 │   ├── services/
 │   │   ├── clickupService.js        # Direct ClickUp API integration
+│   │   ├── demoData.js              # Sample dataset used by DEMO_MODE
 │   │   └── sprintAnalyticsService.js# Data processing & metric computation
 │   ├── utils/
 │   │   └── timeUtils.js             # ms ↔ hours conversions
@@ -88,8 +92,8 @@ Every UI element is a standalone component with no side effects. Pages compose c
 ## Setup
 
 ### Prerequisites
-- Node.js 18+
-- A ClickUp workspace with sprint lists and time tracking enabled
+- Node.js 18+ (the backend relies on the built-in `fetch`; `npm run dev` uses `node --watch`, which needs 18.11+)
+- A ClickUp workspace with sprint lists and time tracking enabled — *not* required for demo mode, below
 
 ### 1. Clone and install
 
@@ -99,19 +103,43 @@ cd sprint-intelligence
 npm run setup
 ```
 
+`npm run setup` installs the root, `server/`, and `client/` dependency trees.
+
 ### 2. Configure environment
 
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env` with your values:
+`.env` belongs at the **repo root** (`server/.env` also works and takes precedence). It is gitignored — never commit a real token.
+
+#### Option A — demo mode (no ClickUp account needed)
+
+To see the dashboard running immediately, set one variable and skip the rest:
+
+```env
+DEMO_MODE=true
+```
+
+The server then answers every endpoint from the bundled sample sprint in `server/services/demoData.js`. Two sprints, four members, and a realistic status/variance spread — enough to exercise all four tabs. Useful for UI work and for reviewing changes without workspace access.
+
+#### Option B — live ClickUp data
 
 ```env
 CLICKUP_API_TOKEN=pk_your_token_here
 CLICKUP_WORKSPACE_ID=9013992885
 CLICKUP_SPRINT_FOLDER_ID=90137660410
 ```
+
+The server exits at startup if `CLICKUP_API_TOKEN` or `CLICKUP_WORKSPACE_ID` is missing and `DEMO_MODE` is off. `CLICKUP_SPRINT_FOLDER_ID` is only needed by `GET /api/sprints`.
+
+Then check the credentials before starting anything:
+
+```bash
+npm run verify
+```
+
+This calls ClickUp with your token and prints every workspace and folder it can see, marking the ones your `.env` points at — so you can copy the right IDs instead of hunting through ClickUp URLs. It exits non-zero if the setup can't serve real data, and distinguishes a rejected token from an unreachable host.
 
 **Getting your ClickUp API token:**
 1. Go to https://app.clickup.com/settings/apps
@@ -134,6 +162,8 @@ This starts both:
 - Backend on `http://localhost:3001`
 - Frontend on `http://localhost:5173` (with API proxy to backend)
 
+Open `http://localhost:5173`. Vite forwards `/api/*` to the backend, so there is no CORS setup to do.
+
 ### 4. Build for production
 
 ```bash
@@ -141,7 +171,33 @@ npm run build    # builds the React frontend
 npm start        # starts Express serving both API + static frontend
 ```
 
-In production, the Express server serves the built React app from `client/dist/` and handles API routes — single process, single port.
+In production, the Express server serves the built React app from `client/dist/` and handles API routes — single process, single port. Set `NODE_ENV=production` to disable request logging, error stack traces in responses, and cross-origin requests; then browse to `http://localhost:3001`.
+
+### Environment reference
+
+| Variable | Required | Default | Purpose |
+|----------|----------|---------|---------|
+| `DEMO_MODE` | no | `false` | Serve bundled sample data instead of calling ClickUp |
+| `CLICKUP_API_TOKEN` | yes* | — | Personal API token |
+| `CLICKUP_WORKSPACE_ID` | yes* | — | Workspace the sprints live in |
+| `CLICKUP_SPRINT_FOLDER_ID` | for `/api/sprints` | — | Folder holding the sprint lists |
+| `PORT` | no | `3001` | Express port (the Vite proxy expects 3001) |
+| `NODE_ENV` | no | `development` | `production` enables the hardened/static-serving path |
+| `CACHE_TTL_SECONDS` | no | `300` | Server-side cache lifetime for ClickUp responses |
+
+\* unless `DEMO_MODE=true`.
+
+### Troubleshooting
+
+Run `npm run verify` first — it diagnoses most of the below in one shot.
+
+- **`Missing required env var(s)` on startup** — `.env` is absent or incomplete. Copy `.env.example`, or set `DEMO_MODE=true`.
+- **`CLICKUP_SPRINT_FOLDER_ID not configured`** — the sprint dropdown calls `/api/sprints`, which needs the folder ID.
+- **`ClickUp API 401`** — the token is wrong or was revoked. Regenerate it at https://app.clickup.com/settings/apps.
+- **`ClickUp API 403` / `Host not in allowlist`** — a proxy or firewall is blocking `api.clickup.com`, not a credential problem.
+- **Empty sprint dropdown** — `CLICKUP_SPRINT_FOLDER_ID` points at a folder with no lists. `npm run verify` lists the folders that do have them.
+- **Frontend loads but every request fails** — the backend isn't up. `curl http://localhost:3001/api/health` should return `{"status":"ok"}`.
+- **Port already in use** — set `PORT` for the backend; change `server.port` in `client/vite.config.js` (and the proxy target) for the frontend.
 
 ---
 

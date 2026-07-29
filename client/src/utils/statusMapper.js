@@ -20,16 +20,9 @@ export function getStatusColor(label) {
   return STATUS_CONFIG[label]?.color ?? "var(--text-muted)";
 }
 
-export function getEfficiencyConfig(score) {
-  if (score === null || score === undefined) {
-    return { label: "No Data", color: "var(--text-dim)", bg: "rgba(71,85,105,0.2)" };
-  }
-  if (score >= 90) return { label: "Excellent", color: "var(--green)", bg: "var(--green-dim)" };
-  if (score >= 70) return { label: "Good", color: "var(--accent)", bg: "rgba(34,211,238,0.15)" };
-  if (score >= 50) return { label: "Fair", color: "var(--amber)", bg: "var(--amber-dim)" };
-  return { label: "Needs Focus", color: "var(--red)", bg: "var(--red-dim)" };
-}
-
-export function getVarianceColor(variance) {
-  return variance >= 0 ? "var(--green)" : "var(--red)";
+/** Colour for a completion percentage — used by rings, chips and metric cards. */
+export function getCompletionColor(rate) {
+  if (rate >= 75) return "var(--green)";
+  if (rate >= 40) return "var(--amber)";
+  return "var(--red)";
 }
